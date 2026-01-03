@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Regenerative Value Activation API (RVE)
+  version: '0.1.0'
+  description: "Trigger conditional value flows based on verified regeneration proofs"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/rve/activations:
+    post:
+      summary: Submit activation request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Activation created
+  /v1/rve/status/{activationId}:
+    get:
+      summary: Get activation status
+      parameters:
+        - in: path
+          name: activationId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Activation status

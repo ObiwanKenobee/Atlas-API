@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Governance & Policy API
+  version: '0.1.0'
+  description: "Publish machine-readable policy documents and state-backed credentials"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/governance/policies:
+    post:
+      summary: Publish a policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Policy published
+  /v1/governance/policies/{policyId}:
+    get:
+      summary: Resolve a policy
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policy document

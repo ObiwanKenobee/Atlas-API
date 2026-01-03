@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Verifiable Regeneration Credentials API (VRC)
+  version: '0.1.0'
+  description: "Issue and verify regeneration credentials"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/vrc/issue:
+    post:
+      summary: Issue a credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Credential issued
+  /v1/vrc/verify:
+    post:
+      summary: Verify credential or presentation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Verification result

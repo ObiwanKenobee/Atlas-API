@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Sensor & Oracle Consensus API
+  version: '0.1.0'
+  description: "Register sensors, submit measurements, and aggregate claims"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/oracle/sensors:
+    post:
+      summary: Register a sensor DID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Registered
+  /v1/oracle/measurements:
+    post:
+      summary: Submit a signed measurement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Received

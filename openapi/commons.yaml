@@ -1,0 +1,25 @@
+openapi: 3.0.3
+info:
+  title: Commons Visualization & Query API
+  version: '0.1.0'
+  description: "Read-only, privacy-preserving access to aggregate system insights"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/commons/metrics:
+    get:
+      summary: Query aggregate regeneration metrics
+      parameters:
+        - in: query
+          name: metric
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Metrics
+  /v1/commons/audit-trail:
+    get:
+      summary: Public audit events (redacted)
+      responses:
+        '200':
+          description: Audit trail

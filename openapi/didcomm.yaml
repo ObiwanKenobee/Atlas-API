@@ -1,0 +1,26 @@
+openapi: 3.0.3
+info:
+  title: DIDComm Gateway API
+  version: '0.1.0'
+  description: "Agent-to-agent messaging gateway (DIDComm v2)"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/didcomm/send:
+    post:
+      summary: Forward DIDComm envelope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Accepted
+  /v1/didcomm/recv:
+    get:
+      summary: Poll for inbound messages
+      responses:
+        '200':
+          description: Messages

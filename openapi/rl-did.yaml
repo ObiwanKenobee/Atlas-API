@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: RL-DID API (Regenerative Land DIDs)
+  version: '0.1.0'
+  description: "Create, resolve, and verify Regenerative Land DIDs"
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/rl-dids:
+    post:
+      summary: Create DID skeleton
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+  /v1/rl-dids/{did}:
+    get:
+      summary: Resolve DID document
+      parameters:
+        - in: path
+          name: did
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: DID Document
