@@ -2,31 +2,312 @@ openapi: 3.0.3
 info:
   title: RL-DID API (Regenerative Land DIDs)
   version: '0.1.0'
-  description: "Create, resolve, and verify Regenerative Land DIDs"
+  description: |
+    Regenerative Land DID (RL-DID) service. Create DID skeletons, resolve DID Documents,
+    attach stewardship metadata, and verify DID-linked proofs. Conforms to W3C DID Core
+    with `rl:stewardship` extensions for the regenerative domain.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: rl-did
+    description: DID creation, resolution, stewardship, and verification
 paths:
   /v1/rl-dids:
     post:
-      summary: Create DID skeleton
+      tags: [rl-did]
+      summary: Create a new RL-DID skeleton
+      description: Create a DID reference (no ownership assertion). Request must include controller DID or public key metadata.
+      security:
+        - didAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/RLDidCreateRequest'
       responses:
         '201':
           description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RLDidCreateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/rl-dids:
+    get:
+      tags: [rl-did]
+      summary: Search RL-DIDs
+      description: Search RL-DIDs by queryable metadata. Results are paginated.
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Free-text query or structured filter
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: cursor
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RLDidSearchResponse'
+
   /v1/rl-dids/{did}:
     get:
-      summary: Resolve DID document
+      tags: [rl-did]
+      summary: Resolve DID Document
       parameters:
         - in: path
           name: did
           required: true
           schema:
             type: string
+          description: DID to resolve (did:rl:...)
       responses:
         '200':
           description: DID Document
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/DIDDocument'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/rl-dids/{did}/stewardship:
+    patch:
+      tags: [rl-did]
+      summary: Attach or update stewardship metadata
+      description: Attach stewardship metadata (no ownership) to a DID document. Request must be signed by the `controller` DID.
+      security:
+        - didAuth: []
+      parameters:
+        - in: path
+          name: did
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StewardshipMetadata'
+      responses:
+        '200':
+          description: Stewardship attached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StewardshipResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/rl-dids/verify:
+    post:
+      tags: [rl-did]
+      summary: Verify proof or DID signature
+      description: Verify a linked-data proof, JWS, or other DID-based signature.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  securitySchemes:
+    didAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        DID-auth token (JWT or JWS) signed by a DID controller key. Alternatively
+        present a JWS in `Signature` header per request signing conventions.
+    mutualTLS:
+      type: mutualTLS
+      description: mTLS certificate bound to a DID subject for high-trust operations.
+
+  schemas:
+    RLDidCreateRequest:
+      type: object
+      required: [method]
+      properties:
+        method:
+          type: string
+          example: rl
+        controller:
+          type: string
+          description: DID of controller (optional)
+        publicKeyJwk:
+          type: object
+          description: Public key in JWK format (optional)
+        metadata:
+          type: object
+          description: Arbitrary public metadata
+
+    RLDidCreateResponse:
+      type: object
+      properties:
+        did:
+          type: string
+          example: did:rl:12345
+        document:
+          $ref: '#/components/schemas/DIDDocument'
+
+    DIDDocument:
+      type: object
+      properties:
+        @context:
+          oneOf:
+            - type: string
+            - type: array
+        id:
+          type: string
+        verificationMethod:
+          type: array
+          items:
+            type: object
+        authentication:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: object
+        service:
+          type: array
+          items:
+            type: object
+        rl:stewardship:
+          $ref: '#/components/schemas/StewardshipMetadata'
+
+    StewardshipMetadata:
+      type: object
+      properties:
+        steward:
+          type: string
+          description: DID of stewarding organization or agent
+        roles:
+          type: array
+          items:
+            type: string
+        policyRefs:
+          type: array
+          items:
+            type: string
+        capabilityConstraints:
+          type: array
+          items:
+            type: object
+      example:
+        steward: did:example:steward123
+        roles: ["dataCurator","certifier"]
+        policyRefs: ["https://policy.example.org/soil#v1"]
+
+    StewardshipResponse:
+      type: object
+      properties:
+        did:
+          type: string
+        stewardship:
+          $ref: '#/components/schemas/StewardshipMetadata'
+
+    VerifyRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+        proof:
+          type: object
+          description: Linked data proof or JWS
+        options:
+          type: object
+
+    VerificationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+        errors:
+          type: array
+          items:
+            type: string
+
+    RLDidSearchResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DIDDocument'
+        cursor:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+security:
+  - didAuth: []
+
+externalDocs:
+  description: Implementation notes and regenerative domain vocabularies
+  url: https://github.com/atlas-sanctum/specs

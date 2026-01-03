@@ -9,6 +9,13 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// Import services
+const didResolver = require('./services/didResolver');
+const didAuth = require('./middleware/didAuth');
+const VRCService = require('./services/vrcService');
+const OracleService = require('./services/oracleService');
+const RVEService = require('./services/rveService');
+
 const specsDir = path.join(__dirname, '..', 'openapi');
 
 function loadSpec(name) {
@@ -38,25 +45,88 @@ Object.entries(specs).forEach(([k, spec]) => {
   }
 });
 
-// Minimal stub endpoints for each service
-app.get('/v1/rl-dids/:did', (req, res) => {
-  res.json({ did: req.params.did, document: { id: req.params.did } });
+// RL-DID endpoints
+app.post('/v1/rl-dids', (req, res) => {
+  const did = `did:rl:${Date.now()}`;
+  didResolver.register(did, { id: did, ...req.body });
+  res.status(201).json({ did, document: { id: did } });
 });
 
-app.get('/v1/didcomm/health', (req, res) => res.json({ service: 'didcomm', status: 'ready' }));
-app.post('/v1/didcomm/send', (req, res) => res.json({ accepted: true }));
+app.get('/v1/rl-dids/:did', (req, res) => {
+  const doc = didResolver.resolve(req.params.did);
+  res.json(doc || { id: req.params.did });
+});
 
-app.post('/v1/vrc/issue', (req, res) => res.json({ issued: true, credential: req.body }));
-app.post('/v1/vrc/verify', (req, res) => res.json({ valid: true }));
+app.patch('/v1/rl-dids/:did/stewardship', didAuth, (req, res) => {
+  res.json({ did: req.params.did, stewardship: req.body });
+});
 
-app.post('/v1/oracle/sensors', (req, res) => res.json({ registered: true, sensor: req.body }));
-app.post('/v1/oracle/measurements', (req, res) => res.json({ received: true }));
+// VRC endpoints
+app.post('/v1/vrc/issue', didAuth, (req, res) => {
+  const cred = VRCService.issue(req.body);
+  res.status(201).json(cred);
+});
 
-app.post('/v1/rve/activations', (req, res) => res.json({ activationId: 'stub-activation', status: 'pending' }));
+app.post('/v1/vrc/verify', (req, res) => {
+  const result = VRCService.verify(req.body.credential);
+  res.json(result);
+});
 
-app.post('/v1/governance/policies', (req, res) => res.json({ published: true, policy: req.body }));
+app.get('/v1/vrc/:credentialId/status', (req, res) => {
+  const status = VRCService.getStatus(req.params.credentialId);
+  res.json(status || { error: 'not found' });
+});
 
-app.get('/v1/commons/metrics', (req, res) => res.json({ metrics: [], query: req.query }));
+// Oracle endpoints
+app.post('/v1/oracle/sensors', didAuth, (req, res) => {
+  const sensorId = OracleService.registerSensor(req.body);
+  res.status(201).json({ did: req.body.did, sensorId });
+});
+
+app.post('/v1/oracle/sensors/:sensorId/measurements', didAuth, (req, res) => {
+  const measurementId = OracleService.submitMeasurement(req.params.sensorId, req.body);
+  res.status(201).json({ measurementId });
+});
+
+app.post('/v1/oracle/aggregate', (req, res) => {
+  const claim = OracleService.aggregate(req.body.query, req.body.policy);
+  res.json(claim);
+});
+
+// RVE endpoints
+app.post('/v1/rve/activations', didAuth, (req, res) => {
+  const activation = RVEService.submit(req.body);
+  res.status(201).json(activation);
+});
+
+app.get('/v1/rve/activations/:activationId', (req, res) => {
+  const status = RVEService.getStatus(req.params.activationId);
+  res.json(status || { error: 'not found' });
+});
+
+app.post('/v1/rve/verify-and-trigger', didAuth, (req, res) => {
+  const result = RVEService.verifyAndTrigger(
+    req.body.activationId,
+    req.body.conditions,
+    req.body.onSuccess
+  );
+  res.json(result);
+});
+
+// Commons endpoints
+app.get('/v1/commons/metrics', (req, res) => {
+  res.json({
+    metric: req.query.metric,
+    value: Math.random() * 100,
+    confidence: 0.85,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/v1/commons/audit-trail', (req, res) => {
+  const events = RVEService.getAuditLog();
+  res.json({ events, hasMore: false });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

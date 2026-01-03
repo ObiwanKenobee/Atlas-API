@@ -2,24 +2,44 @@ openapi: 3.0.3
 info:
   title: Regenerative Value Activation API (RVE)
   version: '0.1.0'
-  description: "Trigger conditional value flows based on verified regeneration proofs"
+  description: |
+    Trigger conditional value flows (incentives, payouts, contract releases)
+    based on verified regeneration proofs. No valid credential → no value release.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: activation
+    description: Activation submission and lifecycle
+  - name: triggers
+    description: Smart contract and webhook triggers
 paths:
   /v1/rve/activations:
     post:
+      tags: [activation]
       summary: Submit activation request
+      description: >-
+        Request value activation conditioned on verified VRC and oracle consensus claims.
+      security:
+        - didAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/ActivationRequest'
       responses:
-        '200':
+        '201':
           description: Activation created
-  /v1/rve/status/{activationId}:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/rve/activations/{activationId}:
     get:
+      tags: [activation]
       summary: Get activation status
       parameters:
         - in: path
@@ -30,3 +50,207 @@ paths:
       responses:
         '200':
           description: Activation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationStatus'
+
+  /v1/rve/verify-and-trigger:
+    post:
+      tags: [triggers]
+      summary: Atomic verify & trigger action
+      description: >-
+        Atomically verify credentials/claims and trigger downstream actions
+        (smart contracts, webhooks, payouts) if conditions pass.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyAndTriggerRequest'
+      responses:
+        '200':
+          description: Verification and trigger complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerResult'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/rve/cancel:
+    post:
+      tags: [activation]
+      summary: Cancel pending activation
+      description: Cancel a pending activation. Must be signed by original requester.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancellationRequest'
+      responses:
+        '200':
+          description: Cancelled
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  securitySchemes:
+    didAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: DID-auth for high-assurance value-release operations.
+
+  schemas:
+    ActivationRequest:
+      type: object
+      required: [subject, credentialId, requestedAction]
+      properties:
+        subject:
+          type: string
+          description: DID of land/beneficiary
+        credentialId:
+          type: string
+          description: VRC to verify
+        claimId:
+          type: string
+          description: Oracle consensus claim (optional)
+        requestedAction:
+          type: object
+          description: Action to trigger (payout, insurance relief, etc.)
+          properties:
+            type:
+              type: string
+              enum: [payout, insurance_relief, contract_release, incentive]
+            amount:
+              type: number
+            recipient:
+              type: string
+        metadata:
+          type: object
+
+    ActivationResponse:
+      type: object
+      properties:
+        activationId:
+          type: string
+        subject:
+          type: string
+        status:
+          type: string
+          enum: [pending, verified, triggered, failed]
+        createdAt:
+          type: string
+          format: date-time
+
+    ActivationStatus:
+      type: object
+      properties:
+        activationId:
+          type: string
+        subject:
+          type: string
+        status:
+          type: string
+        verificationResult:
+          type: object
+        triggerResult:
+          type: object
+        transactionId:
+          type: string
+        failureReason:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    VerifyAndTriggerRequest:
+      type: object
+      required: [activationId, conditions]
+      properties:
+        activationId:
+          type: string
+        conditions:
+          type: array
+          items:
+            type: object
+            properties:
+              credentialId:
+                type: string
+              claimId:
+                type: string
+              threshold:
+                type: number
+        onSuccess:
+          type: object
+          properties:
+            smartContract:
+              type: string
+              description: Contract address or call spec
+            webhook:
+              type: string
+            notarize:
+              type: boolean
+              description: Record on immutable ledger
+
+    TriggerResult:
+      type: object
+      properties:
+        activationId:
+          type: string
+        verified:
+          type: boolean
+        triggered:
+          type: boolean
+        transactionId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: string
+        auditLogId:
+          type: string
+
+    CancellationRequest:
+      type: object
+      required: [activationId]
+      properties:
+        activationId:
+          type: string
+        reason:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Forbidden (activation conditions not met)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+externalDocs:
+  description: RVE patterns and smart-contract integration guides
+  url: https://github.com/atlas-sanctum/specs

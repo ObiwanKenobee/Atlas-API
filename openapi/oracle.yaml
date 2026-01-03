@@ -2,31 +2,294 @@ openapi: 3.0.3
 info:
   title: Sensor & Oracle Consensus API
   version: '0.1.0'
-  description: "Register sensors, submit measurements, and aggregate claims"
+  description: |
+    Register sensor DIDs, submit signed measurements, aggregate multi-source data,
+    and compute confidence scores. No single sensor can issue truth alone.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: sensors
+    description: Sensor registration and metadata
+  - name: measurements
+    description: Signed measurement submission
+  - name: aggregation
+    description: Multi-source consensus and claims
 paths:
   /v1/oracle/sensors:
     post:
+      tags: [sensors]
       summary: Register a sensor DID
+      security:
+        - didAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/SensorRegistration'
+      responses:
+        '201':
+          description: Sensor registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorResponse'
+
+  /v1/oracle/sensors/{sensorId}:
+    get:
+      tags: [sensors]
+      summary: Get sensor metadata and trust score
+      parameters:
+        - in: path
+          name: sensorId
+          required: true
+          schema:
+            type: string
       responses:
         '200':
-          description: Registered
-  /v1/oracle/measurements:
+          description: Sensor metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorMetadata'
+
+  /v1/oracle/sensors/{sensorId}/measurements:
     post:
-      summary: Submit a signed measurement
+      tags: [measurements]
+      summary: Submit signed measurement
+      security:
+        - didAuth: []
+      parameters:
+        - in: path
+          name: sensorId
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/SignedMeasurement'
+      responses:
+        '201':
+          description: Measurement accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementResponse'
+
+  /v1/oracle/aggregate:
+    post:
+      tags: [aggregation]
+      summary: Request aggregation across sensor sources
+      description: >-
+        Query and aggregate measurements from multiple sensors within constraints.
+        Returns aggregated value, confidence, and provenance.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AggregationRequest'
       responses:
         '200':
-          description: Received
+          description: Aggregated claim
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregatedClaim'
+
+  /v1/oracle/claims/{claimId}:
+    get:
+      tags: [aggregation]
+      summary: Retrieve consensus claim and provenance
+      parameters:
+        - in: path
+          name: claimId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Claim with provenance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregatedClaim'
+
+  /v1/oracle/anomalies:
+    get:
+      tags: [aggregation]
+      summary: Get anomaly feed
+      parameters:
+        - in: query
+          name: since
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Anomalies detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnomalyFeed'
+
+components:
+  securitySchemes:
+    didAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    SensorRegistration:
+      type: object
+      required: [did, owner, capabilities]
+      properties:
+        did:
+          type: string
+          description: Sensor DID
+        owner:
+          type: string
+          description: Owner DID
+        capabilities:
+          type: array
+          items:
+            type: string
+          example: ["soil-moisture", "soil-ph", "temperature"]
+        location:
+          type: object
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+        calibration:
+          type: object
+
+    SensorResponse:
+      type: object
+      properties:
+        did:
+          type: string
+        registered:
+          type: boolean
+        trustScore:
+          type: number
+
+    SensorMetadata:
+      type: object
+      properties:
+        did:
+          type: string
+        owner:
+          type: string
+        capabilities:
+          type: array
+        trustScore:
+          type: number
+        historicalConformity:
+          type: number
+        calibrationDate:
+          type: string
+          format: date-time
+
+    SignedMeasurement:
+      type: object
+      required: [timestamp, payload, signature, schema]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          description: Measurement data (soil-moisture, pH, etc.)
+        signature:
+          type: string
+          description: JWS or signature over payload
+        schema:
+          type: string
+          example: "soil-moisture.v1"
+
+    MeasurementResponse:
+      type: object
+      properties:
+        measurementId:
+          type: string
+        accepted:
+          type: boolean
+        timestamp:
+          type: string
+
+    AggregationRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: object
+          properties:
+            bbox:
+              type: array
+              items:
+                type: number
+            timeRange:
+              type: object
+            metric:
+              type: string
+        policy:
+          type: object
+          description: Aggregation constraints (quorum, min trust score)
+
+    AggregatedClaim:
+      type: object
+      properties:
+        claimId:
+          type: string
+        metric:
+          type: string
+        aggregatedValue:
+          type: number
+        confidence:
+          type: number
+        trustScores:
+          type: array
+          items:
+            type: number
+        provenance:
+          type: array
+          items:
+            type: object
+            properties:
+              sensorId:
+                type: string
+              measurement:
+                type: number
+              trustScore:
+                type: number
+
+    AnomalyFeed:
+      type: object
+      properties:
+        anomalies:
+          type: array
+          items:
+            type: object
+            properties:
+              sensorId:
+                type: string
+              detected:
+                type: string
+                format: date-time
+              reason:
+                type: string
+
+externalDocs:
+  description: Oracle consensus patterns and sensor trust models
+  url: https://github.com/atlas-sanctum/specs

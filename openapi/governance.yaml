@@ -2,25 +2,45 @@ openapi: 3.0.3
 info:
   title: Governance & Policy API
   version: '0.1.0'
-  description: "Publish machine-readable policy documents and state-backed credentials"
+  description: |
+    Publish machine-readable policy documents, issue state-backed credentials,
+    and participate in DAO voting. Lets law talk to code without surrendering control.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: policies
+    description: Policy publishing and resolution
+  - name: credentials
+    description: State-backed credential issuance
+  - name: governance
+    description: DAO voting and governance
 paths:
   /v1/governance/policies:
     post:
-      summary: Publish a policy
+      tags: [policies]
+      summary: Publish a policy document
+      description: >-
+        Publish a machine-readable, signed policy document constrained to a jurisdiction.
+      security:
+        - didAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/PolicyDocument'
       responses:
-        '200':
+        '201':
           description: Policy published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyResponse'
+
   /v1/governance/policies/{policyId}:
     get:
-      summary: Resolve a policy
+      tags: [policies]
+      summary: Resolve a policy document
       parameters:
         - in: path
           name: policyId
@@ -30,3 +50,270 @@ paths:
       responses:
         '200':
           description: Policy document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyDocument'
+
+  /v1/governance/credentials/issue:
+    post:
+      tags: [credentials]
+      summary: Issue a state-backed credential
+      description: >-
+        Issue an official government or multilateral credential.
+        Requires state authority signing key.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StateCredentialRequest'
+      responses:
+        '201':
+          description: State credential issued
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/StateCredential'
+
+  /v1/governance/dao/propose:
+    post:
+      tags: [governance]
+      summary: Submit a DAO proposal
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Proposal'
+      responses:
+        '201':
+          description: Proposal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalResponse'
+
+  /v1/governance/dao/vote:
+    post:
+      tags: [governance]
+      summary: Cast a DAO vote
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vote'
+      responses:
+        '201':
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteResponse'
+
+  /v1/governance/dao/results/{proposalId}:
+    get:
+      tags: [governance]
+      summary: Get voting results for a proposal
+      parameters:
+        - in: path
+          name: proposalId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Voting results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VotingResults'
+
+components:
+  securitySchemes:
+    didAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: DID-auth token from authorized policy issuer or state actor.
+
+  schemas:
+    PolicyDocument:
+      type: object
+      required: [policyId, jurisdiction, effectiveFrom]
+      properties:
+        policyId:
+          type: string
+        jurisdiction:
+          type: string
+          description: Jurisdiction code (ISO or custom)
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveUntil:
+          type: string
+          format: date-time
+        machineReadable:
+          type: object
+          description: Policy rules in executable form (Rego-like, JSON-LD ontology, etc.)
+        humanReadable:
+          type: string
+        constraints:
+          type: array
+          items:
+            type: object
+        signer:
+          type: string
+          description: DID of authority issuing the policy
+        signature:
+          type: string
+          description: JWS or Linked Data Proof
+
+    PolicyResponse:
+      type: object
+      properties:
+        policyId:
+          type: string
+        published:
+          type: boolean
+        jurisdiction:
+          type: string
+
+    StateCredentialRequest:
+      type: object
+      required: [issuer, subject, type]
+      properties:
+        issuer:
+          type: string
+          description: State/authority DID
+        subject:
+          type: string
+          description: Subject DID or entity ID
+        type:
+          type: array
+          items:
+            type: string
+          example: ["VerifiableCredential", "LandRightsCredential"]
+        claims:
+          type: object
+          description: Credential claims (land tenure, carbon credit, etc.)
+        expiresAt:
+          type: string
+          format: date-time
+
+    StateCredential:
+      type: object
+      properties:
+        @context:
+          type: array
+        id:
+          type: string
+        type:
+          type: array
+        issuer:
+          type: string
+        subject:
+          type: string
+        issuanceDate:
+          type: string
+        expirationDate:
+          type: string
+        credentialSubject:
+          type: object
+        proof:
+          type: object
+
+    Proposal:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [policy_amendment, budget_allocation, governance_change]
+        votingPeriod:
+          type: string
+          description: Duration (ISO 8601)
+        options:
+          type: array
+          items:
+            type: string
+
+    ProposalResponse:
+      type: object
+      properties:
+        proposalId:
+          type: string
+        status:
+          type: string
+          enum: [draft, voting, passed, failed]
+        votingStartsAt:
+          type: string
+          format: date-time
+        votingEndsAt:
+          type: string
+          format: date-time
+
+    Vote:
+      type: object
+      required: [proposalId, voterDid, option]
+      properties:
+        proposalId:
+          type: string
+        voterDid:
+          type: string
+        option:
+          type: string
+        weight:
+          type: number
+          default: 1
+
+    VoteResponse:
+      type: object
+      properties:
+        proposalId:
+          type: string
+        voteId:
+          type: string
+        recorded:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+
+    VotingResults:
+      type: object
+      properties:
+        proposalId:
+          type: string
+        status:
+          type: string
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              option:
+                type: string
+              votes:
+                type: number
+              percentage:
+                type: number
+        totalVotes:
+          type: number
+        winner:
+          type: string
+
+externalDocs:
+  description: Governance frameworks and policy languages
+  url: https://github.com/atlas-sanctum/specs

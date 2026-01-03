@@ -2,24 +2,259 @@ openapi: 3.0.3
 info:
   title: Commons Visualization & Query API
   version: '0.1.0'
-  description: "Read-only, privacy-preserving access to aggregate system insights"
+  description: |
+    Read-only, privacy-preserving access to aggregate regeneration metrics,
+    time-series data, ecosystem health indices, and public audit trails.
+    Transparency without surveillance.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: metrics
+    description: Aggregated regeneration metrics
+  - name: timeseries
+    description: Time-series analytics
+  - name: audit
+    description: Public audit trails
 paths:
   /v1/commons/metrics:
     get:
+      tags: [metrics]
       summary: Query aggregate regeneration metrics
+      description: >-
+        Retrieve aggregated system-level metrics (differential privacy applied).
+        Supports spatial, temporal, and metric filtering.
       parameters:
         - in: query
           name: metric
           schema:
             type: string
+            enum: [soilCarbon, biodiversityIndex, waterQuality, healthScore]
+        - in: query
+          name: bbox
+          schema:
+            type: string
+            description: Bounding box as "minlon,minlat,maxlon,maxlat"
+        - in: query
+          name: timeRange
+          schema:
+            type: string
+            description: ISO 8601 range (start/end)
+        - in: query
+          name: resolution
+          schema:
+            type: string
+            enum: [daily, weekly, monthly, yearly]
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [json, csv, geojson]
       responses:
         '200':
-          description: Metrics
+          description: Aggregated metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+
+  /v1/commons/timeseries:
+    get:
+      tags: [timeseries]
+      summary: Time-series impact views
+      description: >-
+        Retrieve time-series data for selected metrics with redaction and
+        differential privacy applied.
+      parameters:
+        - in: query
+          name: metric
+          schema:
+            type: string
+        - in: query
+          name: region
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Time-series data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSeriesResponse'
+
+  /v1/commons/health-index:
+    get:
+      tags: [metrics]
+      summary: Ecosystem health index for region
+      description: >-
+        Composite ecosystem health score aggregated from multiple domains
+        (soil, biodiversity, water, carbon).
+      parameters:
+        - in: query
+          name: region
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Health index
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthIndexResponse'
+
   /v1/commons/audit-trail:
     get:
+      tags: [audit]
       summary: Public audit events (redacted)
+      description: >-
+        Append-only public audit trail with sensitive coordinates and identifiers
+        redacted. Enables transparency and verification.
+      parameters:
+        - in: query
+          name: since
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: cursor
+          schema:
+            type: string
       responses:
         '200':
-          description: Audit trail
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditTrailResponse'
+
+components:
+  schemas:
+    MetricsResponse:
+      type: object
+      properties:
+        metric:
+          type: string
+        aggregation:
+          type: string
+          enum: [mean, median, sum, count]
+        value:
+          type: number
+        confidence:
+          type: number
+          description: Confidence score or error bound
+        region:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: array
+          items:
+            type: object
+
+    TimeSeriesResponse:
+      type: object
+      properties:
+        metric:
+          type: string
+        region:
+          type: string
+        dataPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              value:
+                type: number
+              confidence:
+                type: number
+        provenance:
+          type: object
+          description: Attribution and source info (redacted)
+
+    HealthIndexResponse:
+      type: object
+      properties:
+        region:
+          type: string
+        overallScore:
+          type: number
+          minimum: 0
+          maximum: 100
+        domains:
+          type: object
+          properties:
+            soil:
+              type: number
+            biodiversity:
+              type: number
+            water:
+              type: number
+            carbon:
+              type: number
+        trend:
+          type: string
+          enum: [improving, stable, declining]
+        lastUpdated:
+          type: string
+          format: date-time
+
+    AuditEvent:
+      type: object
+      properties:
+        eventId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        eventType:
+          type: string
+          enum: [credential_issued, credential_revoked, activation_triggered, policy_published]
+        subject:
+          type: string
+          description: Redacted subject identifier
+        action:
+          type: string
+        hash:
+          type: string
+          description: Merkle tree hash for integrity verification
+        redactions:
+          type: array
+          items:
+            type: string
+
+    AuditTrailResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+        integrityRoot:
+          type: string
+          description: Latest Merkle root for audit trail verification
+
+externalDocs:
+  description: Privacy and differential privacy implementation notes
+  url: https://github.com/atlas-sanctum/specs

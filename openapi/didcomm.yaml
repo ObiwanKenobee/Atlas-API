@@ -1,26 +1,350 @@
 openapi: 3.0.3
 info:
-  title: DIDComm Gateway API
+  title: DIDComm Gateway API (Regenerative Agent API)
   version: '0.1.0'
-  description: "Agent-to-agent messaging gateway (DIDComm v2)"
+  description: |
+    DIDComm v2 messaging gateway for agent-to-agent secure communication.
+    Supports routed messages, JWE/JWS envelopes, credential requests/presentations,
+    contract negotiation, and constraint/refusal signaling.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: messaging
+    description: Core DIDComm message exchange
+  - name: protocols
+    description: Higher-level protocol flows (credentials, contracts)
 paths:
   /v1/didcomm/send:
     post:
+      tags: [messaging]
       summary: Forward DIDComm envelope
+      description: >-
+        Accept a signed/encrypted DIDComm envelope and forward to recipient(s).
+        Envelopes may be routed via intermediaries.
+      security:
+        - didAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/DIDCommEnvelope'
       responses:
         '200':
-          description: Accepted
+          description: Message accepted and enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /v1/didcomm/recv:
     get:
-      summary: Poll for inbound messages
+      tags: [messaging]
+      summary: Poll for inbound messages (optional; WebSocket preferred)
+      description: Retrieve queued inbound messages for the authenticated agent.
+      security:
+        - didAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+        - in: query
+          name: since
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
-          description: Messages
+          description: Inbound messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecvResponse'
+
+  /v1/didcomm/ws:
+    get:
+      tags: [messaging]
+      summary: WebSocket endpoint for real-time message delivery
+      description: >-
+        Connect via WebSocket to receive inbound messages in real-time.
+        Recommended over polling for low-latency agent-to-agent comms.
+      security:
+        - didAuth: []
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket upgrade)
+
+  /v1/didcomm/threads/{threadId}/signal:
+    post:
+      tags: [messaging]
+      summary: Send constraint or refusal signal
+      description: >-
+        Signal refusal, constraint violation, or other non-error status
+        within a conversation thread.
+      security:
+        - didAuth: []
+      parameters:
+        - in: path
+          name: threadId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalMessage'
+      responses:
+        '200':
+          description: Signal sent
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/didcomm/credentials/request:
+    post:
+      tags: [protocols]
+      summary: Initiate credential request protocol
+      description: >-
+        Request one or more credentials from a holder/issuer.
+        Follows aries-rfc-0036 credential-request flow.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialRequest'
+      responses:
+        '200':
+          description: Credential request sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtocolResponse'
+
+  /v1/didcomm/credentials/presentation:
+    post:
+      tags: [protocols]
+      summary: Present credential(s) (Verifiable Presentation)
+      description: >-
+        Respond to a credential request with a Verifiable Presentation (VP).
+        Supports selective disclosure and ZK proofs.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialPresentation'
+      responses:
+        '200':
+          description: Presentation sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtocolResponse'
+
+  /v1/didcomm/contracts/negotiate:
+    post:
+      tags: [protocols]
+      summary: Initiate contract or agreement negotiation
+      description: >-
+        Start a back-and-forth negotiation flow for contracts,
+        permissions, or data-sharing agreements.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContractNegotiation'
+      responses:
+        '200':
+          description: Negotiation initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtocolResponse'
+
+components:
+  securitySchemes:
+    didAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        DID-auth token (JWT or JWS) signed by the agent's DID key.
+
+  schemas:
+    DIDCommEnvelope:
+      type: object
+      required: [type, from, to]
+      properties:
+        type:
+          type: string
+          example: "application/didcomm-plain+json"
+        from:
+          type: string
+          description: Sender DID
+        to:
+          type: array
+          items:
+            type: string
+          description: Recipient DID(s)
+        thid:
+          type: string
+          description: Thread ID for multi-message flows
+        id:
+          type: string
+          description: Message ID (unique)
+        body:
+          type: object
+          description: Message body (payload)
+        attachments:
+          type: array
+          items:
+            type: object
+
+    SendResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Message ID accepted by gateway
+        status:
+          type: string
+          enum: [queued, delivered, failed]
+        recipients:
+          type: array
+          items:
+            type: string
+
+    RecvResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/DIDCommEnvelope'
+        hasMore:
+          type: boolean
+
+    SignalMessage:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [refusal, constraint_violated, acknowledge]
+        reason:
+          type: string
+          description: Human-readable or code reason
+        constraints:
+          type: array
+          items:
+            type: object
+          description: Encoded constraint details
+
+    CredentialRequest:
+      type: object
+      required: [threadId, requestedCredentials]
+      properties:
+        threadId:
+          type: string
+        requestedCredentials:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                example: "SoilHealthCredential"
+              attributes:
+                type: array
+                items:
+                  type: string
+
+    CredentialPresentation:
+      type: object
+      required: [threadId, verifiablePresentation]
+      properties:
+        threadId:
+          type: string
+        verifiablePresentation:
+          type: object
+          description: W3C Verifiable Presentation (VP)
+        proofOptions:
+          type: object
+          description: ZK or selective disclosure options
+
+    ContractNegotiation:
+      type: object
+      required: [threadId, terms]
+      properties:
+        threadId:
+          type: string
+        terms:
+          type: object
+          description: Proposed contract terms
+        roles:
+          type: array
+          items:
+            type: string
+
+    ProtocolResponse:
+      type: object
+      properties:
+        threadId:
+          type: string
+        messageId:
+          type: string
+        status:
+          type: string
+          enum: [accepted, pending_response]
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+security:
+  - didAuth: []
+
+externalDocs:
+  description: DIDComm v2 specification and implementation guides
+  url: https://identity.foundation/didcomm/

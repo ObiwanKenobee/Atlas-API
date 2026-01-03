@@ -2,31 +2,354 @@ openapi: 3.0.3
 info:
   title: Verifiable Regeneration Credentials API (VRC)
   version: '0.1.0'
-  description: "Issue and verify regeneration credentials"
+  description: |
+    Issue, verify, and revoke regeneration credentials (soil, biodiversity, water, health).
+    Supports selective disclosure, ZK proofs, and time-bound validity checks.
+    Conforms to W3C Verifiable Credentials Data Model.
 servers:
   - url: http://localhost:3000
+tags:
+  - name: issuance
+    description: Credential issuance
+  - name: verification
+    description: Verification and validation
+  - name: revocation
+    description: Credential revocation and status
 paths:
   /v1/vrc/issue:
     post:
-      summary: Issue a credential
+      tags: [issuance]
+      summary: Issue a Verifiable Credential
+      description: >-
+        Issue a signed regeneration credential (soil, biodiversity, water, health, etc.).
+        Issuer DID must be registered and authorized.
+      security:
+        - didAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/CredentialIssuanceRequest'
       responses:
-        '200':
+        '201':
           description: Credential issued
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/VerifiableCredential'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /v1/vrc/verify:
     post:
-      summary: Verify credential or presentation
+      tags: [verification]
+      summary: Verify Credential or Presentation
+      description: >-
+        Verify a Verifiable Credential (VC) or Presentation (VP) including
+        signature, revocation status, schema conformance, and timeValidity.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/VerificationRequest'
       responses:
         '200':
           description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/vrc/{credentialId}:
+    get:
+      tags: [issuance]
+      summary: Retrieve issued credential
+      parameters:
+        - in: path
+          name: credentialId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Credential
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/VerifiableCredential'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/vrc/{credentialId}/status:
+    get:
+      tags: [revocation]
+      summary: Get credential revocation and validity status
+      parameters:
+        - in: path
+          name: credentialId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialStatus'
+
+  /v1/vrc/revoke:
+    post:
+      tags: [revocation]
+      summary: Revoke a credential
+      description: Mark a credential as revoked. Requires issuer authorization.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevocationRequest'
+      responses:
+        '200':
+          description: Revoked
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/vrc/present:
+    post:
+      tags: [verification]
+      summary: Create a Verifiable Presentation with selective disclosure
+      description: >-
+        Generate a VP from held credentials with optional selective disclosure
+        or ZK proof request handling.
+      security:
+        - didAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresentationRequest'
+      responses:
+        '200':
+          description: Presentation generated
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/VerifiablePresentation'
+
+components:
+  securitySchemes:
+    didAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: DID-auth token signed by issuer or subject DID.
+
+  schemas:
+    CredentialIssuanceRequest:
+      type: object
+      required: [issuer, subject, type, credentialSubject]
+      properties:
+        issuer:
+          type: string
+          description: DID of issuer
+        subject:
+          type: string
+          description: DID of subject (land, organization, etc.)
+        type:
+          type: array
+          items:
+            type: string
+          example: ["VerifiableCredential", "SoilHealthCredential"]
+        credentialSubject:
+          type: object
+          description: Credential claims (soil carbon, biodiversity index, etc.)
+          properties:
+            soilCarbon:
+              type: number
+            biodiversityIndex:
+              type: number
+            waterQuality:
+              type: number
+        validFrom:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date-time
+        proofOptions:
+          type: object
+          description: Linked Data Proof options
+
+    VerifiableCredential:
+      type: object
+      properties:
+        @context:
+          type: array
+        id:
+          type: string
+        type:
+          type: array
+        issuer:
+          type: string
+        issuanceDate:
+          type: string
+        expirationDate:
+          type: string
+        credentialSubject:
+          type: object
+        proof:
+          type: object
+
+    VerificationRequest:
+      type: object
+      required: [credential]
+      properties:
+        credential:
+          oneOf:
+            - $ref: '#/components/schemas/VerifiableCredential'
+            - $ref: '#/components/schemas/VerifiablePresentation'
+        options:
+          type: object
+          properties:
+            checkSignature:
+              type: boolean
+              default: true
+            checkRevocation:
+              type: boolean
+              default: true
+            checkValidity:
+              type: boolean
+              default: true
+
+    VerificationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              passed:
+                type: boolean
+              message:
+                type: string
+        errors:
+          type: array
+          items:
+            type: string
+
+    CredentialStatus:
+      type: object
+      properties:
+        credentialId:
+          type: string
+        revoked:
+          type: boolean
+        revokedAt:
+          type: string
+          format: date-time
+        validFrom:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date-time
+        isValid:
+          type: boolean
+
+    RevocationRequest:
+      type: object
+      required: [credentialId, reason]
+      properties:
+        credentialId:
+          type: string
+        reason:
+          type: string
+
+    PresentationRequest:
+      type: object
+      required: [holder, verifier, credentials]
+      properties:
+        holder:
+          type: string
+          description: DID of holder
+        verifier:
+          type: string
+          description: DID of verifier (recipient)
+        credentials:
+          type: array
+          items:
+            type: string
+            description: Credential IDs to include
+        selectiveDisclosure:
+          type: object
+          description: Fields to disclose selectively
+        zkProofRequest:
+          type: object
+
+    VerifiablePresentation:
+      type: object
+      properties:
+        @context:
+          type: array
+        type:
+          type: string
+        holder:
+          type: string
+        verifiableCredential:
+          type: array
+        proof:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+externalDocs:
+  description: W3C VC Data Model and Linked Data Proofs
+  url: https://www.w3.org/TR/vc-data-model/
